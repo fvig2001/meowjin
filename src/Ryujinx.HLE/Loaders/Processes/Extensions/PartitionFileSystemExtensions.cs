@@ -12,9 +12,13 @@ using Ryujinx.Common.Configuration;
 using Ryujinx.Common.Logging;
 using Ryujinx.Common.Utilities;
 using Ryujinx.HLE.FileSystem;
+using Ryujinx.HLE.Loaders.Mods;
+using Ryujinx.HLE.Utilities;
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.IO;
+using static LibHac.Result;
 using ContentType = LibHac.Ncm.ContentType;
 
 namespace Ryujinx.HLE.Loaders.Processes.Extensions
@@ -50,6 +54,66 @@ namespace Ryujinx.HLE.Loaders.Processes.Extensions
             }
 
             return programs;
+        }
+
+        private static Nca TryOpenNca(IStorage ncaStorage, string containerPath, KeySet deviceKeySet)
+        {
+            try
+            {
+                return new Nca(deviceKeySet, ncaStorage);
+            }
+            catch (Exception ex)
+            {
+
+            }
+
+            return null;
+        }
+
+        private static List<DownloadableContentContainer> LoadDownloadableContents(string path, VirtualFileSystem _virtualFileSystem, ulong idBase)
+        {
+            List<DownloadableContentContainer> dlcList = new List<DownloadableContentContainer>();
+            using IFileSystem partitionFileSystem = PartitionFileSystemUtils.OpenApplicationFileSystem(path, _virtualFileSystem);
+            List<DownloadableContentNca> DownloadableContentNcaList = new List<DownloadableContentNca>();
+            DownloadableContentContainer container = new DownloadableContentContainer
+            {
+                ContainerPath = path,
+                DownloadableContentNcaList = new List<DownloadableContentNca>(),
+            };
+            foreach (DirectoryEntryEx fileEntry in partitionFileSystem.EnumerateEntries("/", "*.nca"))
+            {
+
+                using var ncaFile = new UniqueRef<IFile>();
+
+                partitionFileSystem.OpenFile(ref ncaFile.Ref, fileEntry.FullPath.ToU8Span(), OpenMode.Read).ThrowIfFailure();
+
+                Nca nca = TryOpenNca(ncaFile.Get.AsStorage(), path, _virtualFileSystem.KeySet);
+                if (nca == null)
+                {
+                    continue;
+                }
+
+                if (nca.Header.ContentType == NcaContentType.PublicData)
+                {
+                    if (nca.GetProgramIdBase() != idBase)
+                    {
+                        continue;
+                    }
+                    
+                    DownloadableContentNca tmp = new DownloadableContentNca
+                    {
+                        Enabled = true,
+                        TitleId = nca.Header.TitleId,
+                        FullPath = fileEntry.FullPath,
+                    };
+
+                    container.DownloadableContentNcaList.Add(tmp);
+
+                }
+            }
+
+            dlcList.Add(container);
+            return dlcList;
         }
 
         internal static (bool, ProcessResult) TryLoad<TMetaData, TFormat, THeader, TEntry>(this PartitionFileSystemCore<TMetaData, TFormat, THeader, TEntry> partitionFileSystem, Switch device, string path, ulong applicationId, out string errorMessage)
@@ -102,7 +166,7 @@ namespace Ryujinx.HLE.Loaders.Processes.Extensions
                     return (false, ProcessResult.Failed);
                 }
 
-                (Nca updatePatchNca, Nca updateControlNca) = mainNca.GetUpdateData(device.FileSystem, device.System.FsIntegrityCheckLevel, device.Configuration.UserChannelPersistence.Index, out string _);
+                (Nca updatePatchNca, Nca updateControlNca) = mainNca.GetUpdateData(device.FileSystem, device.System.FsIntegrityCheckLevel, device.Configuration.UserChannelPersistence.Index, out string _, path);
 
                 if (updatePatchNca != null)
                 {
@@ -119,9 +183,21 @@ namespace Ryujinx.HLE.Loaders.Processes.Extensions
 
                 // Load DownloadableContents.
                 string addOnContentMetadataPath = System.IO.Path.Combine(AppDataManager.GamesDirPath, mainNca.GetProgramIdBase().ToString("x16"), "dlc.json");
-                if (File.Exists(addOnContentMetadataPath))
+                string extension = System.IO.Path.GetExtension(path).ToLower();
+                bool parseList = File.Exists(addOnContentMetadataPath);
+                List<DownloadableContentContainer> dlcContainerList = null;
+                if (parseList)
                 {
-                    List<DownloadableContentContainer> dlcContainerList = JsonHelper.DeserializeFromFile(addOnContentMetadataPath, _contentSerializerContext.ListDownloadableContentContainer);
+                    dlcContainerList = JsonHelper.DeserializeFromFile(addOnContentMetadataPath, _contentSerializerContext.ListDownloadableContentContainer);
+                }
+                else if (extension is ".xci")
+                {
+                    parseList = true;
+                    dlcContainerList = LoadDownloadableContents(path, device.FileSystem, mainNca.GetProgramIdBase());
+                }
+
+                if (parseList)
+                {
 
                     foreach (DownloadableContentContainer downloadableContentContainer in dlcContainerList)
                     {

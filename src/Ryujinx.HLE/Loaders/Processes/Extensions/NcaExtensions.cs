@@ -127,7 +127,7 @@ namespace Ryujinx.HLE.Loaders.Processes.Extensions
             return nca.Header.ContentType == NcaContentType.Control;
         }
 
-        public static (Nca, Nca) GetUpdateData(this Nca mainNca, VirtualFileSystem fileSystem, IntegrityCheckLevel checkLevel, int programIndex, out string updatePath)
+        public static (Nca, Nca) GetUpdateData(this Nca mainNca, VirtualFileSystem fileSystem, IntegrityCheckLevel checkLevel, int programIndex, out string updatePath, string filePath = "")
         {
             updatePath = null;
 
@@ -159,8 +159,29 @@ namespace Ryujinx.HLE.Loaders.Processes.Extensions
                         break;
                     }
                 }
-            }
 
+            }
+            else
+            {
+                string extension = System.IO.Path.GetExtension(filePath).ToLower();
+
+                if (extension is ".xci")
+                {
+                    IFileSystem updatePartitionFileSystem = PartitionFileSystemUtils.OpenApplicationFileSystem(filePath, fileSystem);
+
+                    foreach ((ulong applicationTitleId, ContentMetaData content) in updatePartitionFileSystem.GetContentData(ContentMetaType.Patch, fileSystem, checkLevel))
+                    {
+                        if ((applicationTitleId & ~0x1FFFUL) != titleIdBase)
+                        {
+                            continue;
+                        }
+
+                        updatePatchNca = content.GetNcaByType(fileSystem.KeySet, ContentType.Program, programIndex);
+                        updateControlNca = content.GetNcaByType(fileSystem.KeySet, ContentType.Control, programIndex);
+                        break;
+                    }
+                }
+            }
             return (updatePatchNca, updateControlNca);
         }
 

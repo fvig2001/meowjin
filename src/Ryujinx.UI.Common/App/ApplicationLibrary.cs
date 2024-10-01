@@ -201,7 +201,7 @@ namespace Ryujinx.UI.App.Common
                 IFileSystem controlFs = controlNca?.OpenFileSystem(NcaSectionType.Data, _checkLevel);
 
                 // Check if there is an update available.
-                if (IsUpdateApplied(mainNca, out IFileSystem updatedControlFs))
+                if (IsUpdateApplied(mainNca, out IFileSystem updatedControlFs, filePath))
                 {
                     // Replace the original ControlFs by the updated one.
                     controlFs = updatedControlFs;
@@ -298,6 +298,10 @@ namespace Ryujinx.UI.App.Common
                             if (applications.Count == 0)
                             {
                                 return false;
+                            }
+                            if (applications.Count > 1)
+                            {
+                                break;
                             }
 
                             break;
@@ -908,7 +912,7 @@ namespace Ryujinx.UI.App.Common
             data.Version = controlData.DisplayVersionString.ToString();
         }
 
-        private bool IsUpdateApplied(Nca mainNca, out IFileSystem updatedControlFs)
+        private bool IsUpdateApplied(Nca mainNca, out IFileSystem updatedControlFs, string path = "")
         {
             updatedControlFs = null;
 
@@ -916,7 +920,7 @@ namespace Ryujinx.UI.App.Common
 
             try
             {
-                (Nca patchNca, Nca controlNca) = mainNca.GetUpdateData(_virtualFileSystem, _checkLevel, 0, out updatePath);
+                (Nca patchNca, Nca controlNca) = mainNca.GetUpdateData(_virtualFileSystem, _checkLevel, 0, out updatePath, path);
 
                 if (patchNca != null && controlNca != null)
                 {

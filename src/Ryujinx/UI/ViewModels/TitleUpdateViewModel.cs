@@ -139,7 +139,15 @@ namespace Ryujinx.Ava.UI.ViewModels
 
             if (SelectedUpdate == null)
             {
-                SelectedUpdate = Views[0];
+                if (Views.Count > 1)
+                {
+                    SelectedUpdate = Views[1]; //pick highest version
+                }
+                else
+                {
+                    SelectedUpdate = Views[0]; //pick none
+                }
+                
             }
             else if (!TitleUpdates.Contains(SelectedUpdate))
             {
